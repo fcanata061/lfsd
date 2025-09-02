@@ -1,0 +1,11 @@
+[Unit]
+Description=LFSd Early Checks
+DefaultDependencies=no
+Before=sysinit.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/true # espaço para verify rápido no futuro
+
+[Install]
+WantedBy=sysinit.target
