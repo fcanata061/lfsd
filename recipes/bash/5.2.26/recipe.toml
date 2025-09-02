@@ -1,0 +1,9 @@
+name = "bash"
+version = "5.2.26"
+source = "https://ftp.gnu.org/gnu/bash/bash-5.2.26.tar.gz"
+sha256 = "<preencha>"
+depends = ["zlib"]
+
+configure = ["./configure", "--prefix=/usr"]
+make      = ["make", "-j${JOBS}"]
+install   = ["make", "install", "DESTDIR=${STAGE}"]
