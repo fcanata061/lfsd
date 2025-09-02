@@ -1,0 +1,10 @@
+[Unit]
+Description=Sync receitas a cada 1h
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+Unit=lfsd-sync.service
+
+[Install]
+WantedBy=timers.target
