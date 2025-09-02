@@ -1,20 +1,14 @@
-# Valores default; variáveis LFSD_* sobrepõem.
-recipes_dir = "/usr/share/lfsd/recipes"
-state_dir   = "/var/lib/lfsd"
-stage_dir   = "/var/stage/lfsd"
-cache_dir   = "/var/cache/lfsd"
-log_dir     = "/var/log/lfsd"recipes_dir = "/usr/share/lfsd/recipes"
-state_dir = "/var/lib/lfsd"
-stage_dir = "/var/stage/lfsd"
-cache_dir = "/var/cache/lfsd"
-bin_dir = "/var/cache/lfsd/bin"
-sources_dir = "/var/cache/lfsd/sources"
-log_dir = "/var/log/lfsd"
-remote_url = "" # seu repo github aqui
-channel = "stable"
-snapshot_backend = "tar"
-color = "auto"
-jobs = 0
-channel     = "stable"
-snapshot_backend = "btrfs"  # ou "tar"
-color = "auto"
+# Valores default; podem ser sobrescritos por variáveis de ambiente LFSD_*
+
+recipes_dir       = "/usr/share/lfsd/recipes"   # diretório de receitas
+state_dir         = "/var/lib/lfsd"             # diretório de estado e manifests
+stage_dir         = "/var/stage/lfsd"           # diretório de compilação/DESTDIR
+cache_dir         = "/var/cache/lfsd"           # diretório base para bin e sources
+bin_dir           = "/var/cache/lfsd/bin"       # pacotes binários empacotados
+sources_dir       = "/var/cache/lfsd/sources"   # tarballs/git checkouts
+log_dir           = "/var/log/lfsd"             # logs de transações
+remote_url        = ""                           # URL do repo Git para sync
+channel           = "stable"                     # canal de rolling release
+snapshot_backend  = "btrfs"                      # "btrfs" ou "tar"
+color             = "auto"                       # auto, always, never
+jobs              = 0                            # 0 = autodetect cores
