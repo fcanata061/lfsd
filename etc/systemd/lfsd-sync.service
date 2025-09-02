@@ -1,0 +1,7 @@
+[Unit]
+Description=LFSd Sync Receitas
+
+[Service]
+Type=oneshot
+Environment=LFSD_CHANNEL=stable
+ExecStart=/usr/bin/lfsd sync
