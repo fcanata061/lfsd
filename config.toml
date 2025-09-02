@@ -1,0 +1,9 @@
+# Valores default; variáveis LFSD_* sobrepõem.
+recipes_dir = "/usr/share/lfsd/recipes"
+state_dir   = "/var/lib/lfsd"
+stage_dir   = "/var/stage/lfsd"
+cache_dir   = "/var/cache/lfsd"
+log_dir     = "/var/log/lfsd"
+channel     = "stable"
+snapshot_backend = "btrfs"  # ou "tar"
+color = "auto"
