@@ -1,0 +1,12 @@
+[Unit]
+Description=LFSd Daemon (fila de builds e hooks pós-boot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/lfsd sync && /usr/bin/lfsd plan zlib bash coreutils && /usr/bin/lfsd build && /usr/bin/lfsd snapshot apply && /usr/bin/lfsd apply
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
