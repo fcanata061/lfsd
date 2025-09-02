@@ -1,0 +1,254 @@
+#############################################
+# Tutorial: Systemd + Btrfs Snapshots + lfspkg
+#############################################
+
+Arquivo único em texto (.txt), contendo:
+- Introdução
+- Pré-requisitos
+- Estrutura de subvolumes
+- Scripts para snapshots, rollback, limpeza
+- Integração com systemd
+- Integração opcional com systemd-boot
+- Configuração de cores
+- Testes e checklist
+- Como usar os scripts (NOVA SEÇÃO)
+
+=============================================
+1) Introdução
+=============================================
+Este tutorial mostra como criar um gerenciador simples (lfspkg) que:
+- Cria snapshots Btrfs antes de qualquer operação
+- Faz rollback automático em caso de falha
+- Integra com systemd (units, timers, rollback)
+- Pode gerar entradas de boot (systemd-boot) para iniciar snapshots
+- Implementa retenção e limpeza de snapshots antigos
+- Usa coloração para facilitar visualização
+
+=============================================
+2) Pré-requisitos
+=============================================
+- Root em Btrfs (subvolume @)
+- systemd como init
+- Ferramentas: btrfs-progs, systemd-boot (opcional)
+- Acesso root
+- Testar em VM antes de usar em produção
+
+=============================================
+3) Estrutura recomendada de subvolumes
+=============================================
+@      -> root do sistema
+@home  -> /home
+@var   -> /var (opcional)
+.snapshots -> onde snapshots serão salvos
+
+Exemplo fstab:
+UUID=XXXX  /      btrfs subvol=@,defaults 0 1
+UUID=XXXX  /home  btrfs subvol=@home,defaults 0 2
+
+=============================================
+4) Configuração padrão em variáveis
+=============================================
+# Configuração padrão usada nos scripts
+BTRFS_MOUNTPOINT="/"
+ROOT_SUBVOL="@"
+SNAP_ROOT="/.snapshots"
+SNAP_PREFIX="snap"
+KEEP_SNAPSHOTS=7
+LOGFILE="/var/log/lfspkg.log"
+
+=============================================
+5) Script: criar snapshot (create-snapshot.sh)
+=============================================
+#!/usr/bin/env bash
+set -euo pipefail
+BTRFS_MOUNTPOINT="/"
+ROOT_SUBVOL="@"
+SNAP_ROOT="/.snapshots"
+SNAP_PREFIX="snap"
+
+DESCRIPTION="${1:-manual}"
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+SNAP_NAME="${SNAP_PREFIX}-${TIMESTAMP}"
+SNAP_PATH="${SNAP_ROOT}/${SNAP_NAME}"
+
+mkdir -p "${SNAP_ROOT}"
+btrfs subvolume snapshot -r "${BTRFS_MOUNTPOINT}${ROOT_SUBVOL}" "${SNAP_PATH}"
+echo "${TIMESTAMP} ${SNAP_NAME} ${DESCRIPTION}" >> "${SNAP_ROOT}/snapshots.log"
+echo "${SNAP_NAME}"
+
+=============================================
+6) Script: gerenciador lfspkg (lfspkg.sh)
+=============================================
+#!/usr/bin/env bash
+set -euo pipefail
+BTRFS_MOUNTPOINT="/"
+ROOT_SUBVOL="@"
+SNAP_ROOT="/.snapshots"
+SNAP_PREFIX="preop"
+LOGFILE="/var/log/lfspkg"
+
+op="$1"
+shift || true
+
+SNAP_NAME=$(/usr/local/bin/create-snapshot.sh "lfspkg: ${op}")
+
+if [[ -z "$SNAP_NAME" ]]; then
+  echo "Falha ao criar snapshot" >&2
+  exit 1
+fi
+
+if /usr/local/bin/lfspkg_do_${op} "$@"; then
+  echo "Operação ${op} concluída com sucesso"
+else
+  echo "Operação ${op} falhou. Rollback no snapshot ${SNAP_NAME}" >&2
+  /usr/local/bin/lfspkg_schedule_rollback.sh "${SNAP_NAME}" "${op}"
+fi
+
+=============================================
+7) Script: rollback (lfspkg_schedule_rollback.sh)
+=============================================
+#!/usr/bin/env bash
+set -euo pipefail
+SNAP_NAME="$1"
+OP_DESC="${2:-failed-op}"
+
+BTRFS_MOUNTPOINT="/"
+SNAP_ROOT="/.snapshots"
+
+SUBVOL_ID=$(btrfs subvolume list "${BTRFS_MOUNTPOINT}" | awk -v s="${SNAP_ROOT}/${SNAP_NAME}" '$0 ~ s {print $2; exit}')
+
+if [[ -z "$SUBVOL_ID" ]]; then
+  echo "ERRO: não encontrei snapshot ${SNAP_NAME}" >&2
+  exit 2
+fi
+
+btrfs subvolume set-default ${SUBVOL_ID} "${BTRFS_MOUNTPOINT}"
+echo "Rollback preparado para snapshot ${SNAP_NAME} (id=${SUBVOL_ID}). Reiniciando..."
+systemctl reboot
+
+=============================================
+8) Unidades systemd
+=============================================
+Arquivo: /etc/systemd/system/lfspkg-snapshot.service
+-------------------------------------------
+[Unit]
+Description=Snapshot Btrfs periódico
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/create-snapshot.sh "timer"
+
+Arquivo: /etc/systemd/system/lfspkg-snapshot.timer
+-------------------------------------------
+[Unit]
+Description=Agendar snapshots Btrfs
+[Timer]
+OnCalendar=daily
+Persistent=true
+[Install]
+WantedBy=timers.target
+
+Arquivo: /etc/systemd/system/lfspkg-post-rollback.service
+-------------------------------------------
+[Unit]
+Description=Ações pós-rollback do lfspkg
+After=local-fs.target
+ConditionPathExists=/run/lfspkg/rollback-info
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/lfspkg-post-rollback.sh
+
+[Install]
+WantedBy=multi-user.target
+
+=============================================
+9) Integração systemd-boot (opcional)
+=============================================
+Adicionar entradas em /boot/loader/entries/
+Exemplo:
+title   Snapshot snap-20250902-190000
+linux   /vmlinuz-linux
+initrd  /initramfs-linux.img
+options root=UUID=SEU_UUID rootflags=subvol=/.snapshots/snap-20250902-190000
+
+=============================================
+10) Script: limpeza de snapshots antigos
+=============================================
+#!/usr/bin/env bash
+SNAP_ROOT="/.snapshots"
+KEEP=7
+
+cd "$SNAP_ROOT"
+ls -1t | tail -n +$((KEEP + 1)) | while read -r OLD; do
+  btrfs subvolume delete "${SNAP_ROOT}/${OLD}"
+done
+
+=============================================
+11) Cores (lfspkg_colors.sh)
+=============================================
+RED="\e[31m"; GREEN="\e[32m"; YELLOW="\e[33m"; RESET="\e[0m"
+info(){ printf "%b[INFO]%b %s\n" "${GREEN}" "${RESET}" "$*"; }
+err(){ printf "%b[ERR]%b %s\n" "${RED}" "${RESET}" "$*"; }
+
+=============================================
+12) Checklist de testes
+=============================================
+- Criar snapshot manual
+- Simular instalação com falha → rollback automático
+- Verificar se snapshot antigo é setado como default
+- Testar reboot no snapshot
+- Confirmar logs em /var/log/lfspkg.log
+- Testar limpeza automática de snapshots
+- Validar entradas do systemd-boot
+
+=============================================
+13) Como usar os scripts (NOVA SEÇÃO)
+=============================================
+Passo a passo para usar na prática:
+
+1. Copiar scripts para /usr/local/bin
+   sudo cp create-snapshot.sh /usr/local/bin/
+   sudo cp lfspkg.sh /usr/local/bin/
+   sudo cp lfspkg_schedule_rollback.sh /usr/local/bin/
+   sudo cp lfspkg-clean.sh /usr/local/bin/
+   sudo chmod +x /usr/local/bin/*.sh
+
+2. Criar snapshot manual
+   sudo /usr/local/bin/create-snapshot.sh "teste-manual"
+
+3. Usar o gerenciador (simulado)
+   sudo /usr/local/bin/lfspkg.sh install gcc
+   -> cria snapshot antes
+   -> executa operação
+   -> se falhar, rollback automático
+
+4. Rollback manual
+   sudo /usr/local/bin/lfspkg_schedule_rollback.sh snap-20250902-190000
+   -> seta snapshot como root
+   -> reinicia
+
+5. Limpeza de snapshots
+   sudo /usr/local/bin/lfspkg-clean.sh
+   -> mantém apenas os 7 mais recentes
+
+6. Ativar snapshots automáticos
+   sudo systemctl enable --now lfspkg-snapshot.timer
+
+7. Ativar limpeza automática
+   Criar arquivos lfspkg-clean.service e lfspkg-clean.timer
+   sudo systemctl enable --now lfspkg-clean.timer
+
+8. Verificar logs
+   cat /var/log/lfspkg.log
+
+=============================================
+Fim do tutorial
+=============================================
+Com esse material:
+- Snapshots automáticos antes de cada operação
+- Rollback em falha
+- Snapshots periódicos
+- Integração no boot
+- Retenção automática
+- CLI colorido
+- Passo a passo de uso
